@@ -118,17 +118,17 @@ def valid_radical_component?(component)
 end
 
 # @param component [any]
+# @return [Boolean]
+def valid_component?(component)
+  valid_kanji_component?(component) || valid_radical_component?(component)
+end
+
+# @param component [any]
 # @return [Array<String>]
 def component_errors(component)
   return [] if valid_component?(component)
 
   kanji_component_errors(component) + radical_component_errors(component)
-end
-
-# @param component [any]
-# @return [Boolean]
-def valid_component?(component)
-  valid_kanji_component?(component) || valid_radical_component?(component)
 end
 
 # @param jukugo [any]
@@ -182,13 +182,14 @@ def validate_kunyomi(kunyomi)
   raise "Invalid kunyomi:\n" + kunyomi_errors(kunyomi).join("\n").inspect
 end
 
-# @param data [any]
-# @param attr @TODO
+# @param hash [Hash] - The hash containing the thing to test
+# @param attr [any] - The key to the thing to test
 # @param expected_klass [Class]
 # @return [Array<String>]
-def maybe_wraps_a(data, attr, expected_klass)
-  attr_is(data, attr, May::Be) do |m|
+def maybe_wraps_a(hash, attr, expected_klass)
+  attr_is(hash, attr, May::Be) do |m|
     klass = m.map(&:class).get_or_else_value(expected_klass)
+
     if klass == expected_klass
       []
     else
@@ -233,6 +234,16 @@ def validate_page_data(data)
 
   # If the data is invalid here it's my fault, so raise an error
   raise "Invalid page data:\n" + page_data_errors(data).join("\n")
+end
+
+# @param html [Mechanize::Page]
+# @param location [String]
+# @return [May:Be<String>]
+def text_at(html, location)
+  s = html.search(location)
+  s = yield(s) if block_given?
+  s = s.text.strip.gsub("\r", '')
+  s.empty? ? May::None.new : May::Some.new(s)
 end
 
 # @param arr [Array<A>]
@@ -281,12 +292,6 @@ def get_kanji_components(html)
     .compact
 end
 
-# @param html [Mechanize::Page]
-# @return [May::Be<String>]
-def get_onyami(html)
-  table_under_heading(html, 'Onyomi').and_then { |t| text_at(t, 'td', &:first) }
-end
-
 # @param node [Nokogiri::XML::Node]
 # @return [May::Be<Nokogiri::XML::Node>]
 def maybe_next(node)
@@ -306,13 +311,9 @@ def table_under_heading(html, heading)
 end
 
 # @param html [Mechanize::Page]
-# @param location [String]
-# @return [May:Be<String>]
-def text_at(html, location)
-  s = html.search(location)
-  s = yield(s) if block_given?
-  s = s.text.strip.gsub("\r", '')
-  s.empty? ? May::None.new : May::Some.new(s)
+# @return [May::Be<String>]
+def get_onyomi(html)
+  table_under_heading(html, 'Onyomi').and_then { |t| text_at(t, 'td', &:first) }
 end
 
 # @param html [Mechanize::Page]
@@ -393,7 +394,7 @@ def get_page_data(html)
     .assign(:index) { get_page_index(html) }
     .assign(:character) { get_character(html) }
     .map { |d| d.merge(components: get_kanji_components(html)) }
-    .map { |d| d.merge(onyomi: get_onyami(html)) }
+    .map { |d| d.merge(onyomi: get_onyomi(html)) }
     .map { |d| d.merge(mnemonic: get_mnemonic(html)) }
     .map { |d| d.merge(kunyomi: get_kunyomi(html, d[:character])) }
     .map { |d| d.merge(jukugo: get_jukugo(html)) }
