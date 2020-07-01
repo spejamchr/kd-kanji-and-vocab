@@ -338,6 +338,63 @@ def get_mnemonic(html)
   str.empty? ? text_at(html, '.description').get_or_else_value('') : str
 end
 
+# @param str [String]
+# @return [String]
+def jparens(str)
+  str.empty? ? str : "（#{str}）"
+end
+
+# @param str [String]
+# @return [String]
+def sub_jparens(str)
+  str.gsub('(', '（').gsub(')', '）')
+end
+
+# @param spans [Nokogiri::XML::NodeSet]
+# @return [String]
+def prefix_in(spans)
+  spans.first&.attr(:class) == 'particles' ? spans.first.text : ''
+end
+
+# @param spans [Nokogiri::XML::NodeSet]
+# @return [String]
+def suffix_in(spans)
+  spans.last&.attr(:class) == 'particles' ? spans.last.text : ''
+end
+
+# @param spans [Nokogiri::XML::NodeSet]
+# @return [String]
+def kanji_in(spans)
+  text_at(spans, '.kanji_character').get_or_else_value('')
+end
+
+# @param spans [Nokogiri::XML::NodeSet]
+# @return [String]
+def tail_in(spans)
+  parts = kanji_in(spans).split(/[*＊]/)
+  parts.count == 2 ? parts.last : ''
+end
+
+# @param kanji [String]
+# @param table_row [Nokogiri::XML::Element]
+# @return May::Be<String>
+def kunyomi_word(kanji, table_row)
+  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
+    jparens(prefix_in(spans)) +
+      kanji +
+      tail_in(spans) +
+      jparens(suffix_in(spans))
+  end
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return May::Be<String>
+def kunyomi_pronunciation(table_row)
+  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
+    jparens(prefix_in(spans)) + kanji_in(spans) + jparens(suffix_in(spans))
+  end
+end
+
 # @param html [Nokogiri::HTML::Document]
 # @param character [Component]
 # @return [Array<Kunyomi>]
@@ -348,12 +405,9 @@ def get_kunyomi(html, character)
 
   table_under_heading(html, 'Kunyomi').map do |t|
     t.search('tr').map do |tr|
-      pronunciation = text_at(tr, 'td', &:first)
-
-      May::Some.new({}).assign(:word) do
-        pronunciation.map { |p| kanji + p.gsub(/^.*\*/, '') }
-      end
-        .assign(:pronunciation) { pronunciation }
+      May::Some.new({})
+        .assign(:word) { kunyomi_word(kanji, tr) }
+        .assign(:pronunciation) { kunyomi_pronunciation(tr) }
         .assign(:definition) { text_at(tr, 'td', &:last) }
         .effect { |o| validate_kunyomi(o) }
         .get_or_else_value(nil)
@@ -361,6 +415,39 @@ def get_kunyomi(html, character)
       .compact
   end
     .get_or_else_value([])
+end
+
+# @param spans [Nokogiri::XML::NodeSet]
+# @return [String]
+def jukugo_kanji_in(spans)
+  kanji_in(spans).gsub(/\(.+/, '')
+end
+
+# @param spans [Nokogiri::XML::NodeSet]
+# @return [String]
+def jukugo_pronunciation_in(spans)
+  kanji_in(spans).gsub(/.+\(/, '').gsub(')', '')
+end
+
+# @param kanji [String]
+# @param table_row [Nokogiri::XML::Element]
+# @return May::Be<String>
+def jukugo_word(table_row)
+  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
+    jparens(prefix_in(spans)) +
+      jukugo_kanji_in(spans) +
+      jparens(suffix_in(spans))
+  end
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return May::Be<String>
+def jukugo_pronunciation(table_row)
+  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
+    jparens(prefix_in(spans)) +
+      jukugo_pronunciation_in(spans) +
+      jparens(suffix_in(spans))
+  end
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -372,12 +459,9 @@ def get_jukugo(html)
       components =
         children.search('.component').map { |c| kanji_component(c.text) }
 
-      text_at(tr, 'td', &:first).map do |w|
-        {
-          word: w.gsub(/\((.*)\)/, '').strip.split("\n").first,
-          pronunciation: $1
-        }
-      end
+      May::Some.new({})
+        .assign(:word) { jukugo_word(tr) }
+        .assign(:pronunciation) { jukugo_pronunciation(tr) }
         .assign(:definition) { head(children).map(&:text).map(&:strip) }
         .map { |h| h.merge(components: components) }
         .effect { |h| validate_jukugo(h) }
@@ -430,10 +514,3 @@ end
 
 # Create a JSON file of all the data
 File.write(SAVE_FILE, all_pages.to_json)
-
-# TODO: Fix some bugs
-# - The kunyomi & jukugo aren't always parsed correctly
-#   @see http://www.kanjidamage.com/kanji/1740-deed-%E7%82%BA
-#   The prefixes/suffixes and lack of "*" in the kunyomi break stuff
-#   Also, sometimes KanjiDamage uses a special version of "*" instead
-#   @see http://www.kanjidamage.com/kanji/1342-pass-%E9%80%9A
