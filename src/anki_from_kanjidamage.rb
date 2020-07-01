@@ -1,16 +1,21 @@
 # frozen_string_literal: true
 
-# Scrape KanjiDamage.com and create a JSON file of the data
+# Create a JSON file of structured data from downloaded KanjiDamage pages
+#
+# Searches for pages in ./html/. Use the ./download_kanjidamage.rb script to
+# populate that directory.
 #
 # Use a functional style for everything.
 
-require 'mechanize'
+require 'nokogiri'
+require 'parallel'
 require 'json'
 require '../other_ruby/maybe.rb'
 
 BASE_URL = 'http://www.kanjidamage.com'
 FIRST_KANJI = "#{BASE_URL}/kanji/1"
 SAVE_FILE = 'data.json'
+PAGES_DIR = 'html'
 
 # interface PageData {
 #   index: Integer;
@@ -21,7 +26,6 @@ SAVE_FILE = 'data.json'
 #   mnemonic: String;
 #   kunyomi: Array<Kunyomi>;
 #   jukugo: Array<Jukugo>;
-#   next_page: Maybe<URI::HTTP>;
 # }
 #
 # interface Kunyomi {
@@ -84,6 +88,7 @@ end
 # @return [Array<String>] - an array of error messages
 def attr_is(hash, attr, thing)
   val = hash[attr]
+
   obj_is(val, "#{attr} to be #{thing}", thing).yield_self do |a|
     a.empty? && block_given? ? yield(val) : a
   end
@@ -200,6 +205,14 @@ def maybe_wraps_a(hash, attr, expected_klass)
   end
 end
 
+# @param hash [Hash] - The hash containing the array of things to test
+# @param attr [any] - The key to the array of things to test
+# @yield [any] yields for each thing to test
+# @yieldreturn [Array<String>] - an array of error messages
+def check_array_with(hash, attr, &block)
+  attr_is(hash, attr, Array) { |comps| comps.flat_map(&block) }
+end
+
 # @param data [any]
 # @return [Array<String>]
 def page_data_errors(data)
@@ -207,17 +220,10 @@ def page_data_errors(data)
     attr_is(data, :index, Integer) + component_errors(data[:character]) +
       attr_is(data, :translation, String) +
       attr_is(data, :mnemonic, String) +
-      attr_is(data, :components, Array) do |comps|
-        comps.flat_map { |c| component_errors(c) }
-      end +
+      check_array_with(data, :components) { |c| component_errors(c) } +
       maybe_wraps_a(data, :onyomi, String) +
-      attr_is(data, :kunyomi, Array) do |kuns|
-        kuns.flat_map { |k| kunyomi_errors(k) }
-      end +
-      attr_is(data, :jukugo, Array) do |juks|
-        juks.flat_map { |j| jukugo_errors(j) }
-      end +
-      maybe_wraps_a(data, :next_page, URI::HTTP)
+      check_array_with(data, :kunyomi) { |c| kunyomi_errors(c) } +
+      check_array_with(data, :jukugo) { |c| jukugo_errors(c) }
   end
 end
 
@@ -236,13 +242,14 @@ def validate_page_data(data)
   raise "Invalid page data:\n" + page_data_errors(data).join("\n")
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @param location [String]
 # @return [May:Be<String>]
 def text_at(html, location)
   s = html.search(location)
   s = yield(s) if block_given?
   s = s.text.strip.gsub("\r", '')
+
   s.empty? ? May::None.new : May::Some.new(s)
 end
 
@@ -258,16 +265,17 @@ def str_to_int(str)
   str == str.to_i.to_s ? May::Some.new(str.to_i) : May::None.new
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @return [May::Be<Integer>]
 def get_page_index(html)
-  text_at(html, '.navigation-header > .text-centered').and_then do |str|
-    head(str.match(/Number\s+(\d+)/m).to_a.reverse)
+  text_at(html, '.navigation-header > .text-centered').map do |str|
+    str.match(/Number\s+(\d+)/m).to_a.reverse
   end
+    .and_then { |arr| head(arr) }
     .and_then { |str| str_to_int(str) }
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @return [May::Be<String>]
 def get_character(html)
   text_at(html, 'h1 > .kanji_character').map { |k| kanji_component(k) }
@@ -278,7 +286,7 @@ def get_character(html)
   end
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @return [Array<Component>]
 def get_kanji_components(html)
   html.search('.span8 > .component').map do |c|
@@ -299,7 +307,7 @@ def maybe_next(node)
   sibling ? May::Some.new(sibling) : May::None.new
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @param heading [String]
 # @return [May::Be<Nokogiri::XML::Element>]
 def table_under_heading(html, heading)
@@ -310,13 +318,13 @@ def table_under_heading(html, heading)
     .and_then { |el| el.name == 'table' ? May::Some.new(el) : May::None.new }
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @return [May::Be<String>]
 def get_onyomi(html)
   table_under_heading(html, 'Onyomi').and_then { |t| text_at(t, 'td', &:first) }
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @return [String]
 def get_mnemonic(html)
   str =
@@ -330,7 +338,7 @@ def get_mnemonic(html)
   str.empty? ? text_at(html, '.description').get_or_else_value('') : str
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @param character [Component]
 # @return [Array<Kunyomi>]
 def get_kunyomi(html, character)
@@ -355,7 +363,7 @@ def get_kunyomi(html, character)
     .get_or_else_value([])
 end
 
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @return [Array<Jukugo>]
 def get_jukugo(html)
   table_under_heading(html, 'Jukugo').map do |t|
@@ -380,14 +388,7 @@ def get_jukugo(html)
     .get_or_else_value([])
 end
 
-# @param html [Mechanize::Page]
-# @return [May::Be<Mechanize::Page::Link>]
-def get_next_page_link(html)
-  next_page = html.links.find { |l| l.text.match?(/Next/) }
-  next_page ? May::Some.new(next_page.resolved_uri) : May::None.new
-end
-
-# @param html [Mechanize::Page]
+# @param html [Nokogiri::HTML::Document]
 # @return [May::Be<PageData>]
 def get_page_data(html)
   May::Some.new({}).assign(:translation) { text_at(html, 'h1 > .translation') }
@@ -398,50 +399,41 @@ def get_page_data(html)
     .map { |d| d.merge(mnemonic: get_mnemonic(html)) }
     .map { |d| d.merge(kunyomi: get_kunyomi(html, d[:character])) }
     .map { |d| d.merge(jukugo: get_jukugo(html)) }
-    .map { |d| d.merge(next_page: get_next_page_link(html)) }
     .effect { |d| validate_page_data(d) }
 end
 
-# @param agent [Mechanize]
-# @param uri [String]
-# @return [May::Be<Mechanize::Page>]
-def visit(agent, uri)
-  May::Some.new(agent.get(uri))
+# @param filepath [String]
+# @return [May::Be<Nokogiri::HTML::Document>]
+def get_html(filepath)
+  May::Some.new(Nokogiri.HTML(File.read(filepath)))
 rescue StandardError
   May::None.new
 end
 
-# @param agent [Mechanize]
-# @param uri [String | URI::HTTP]
-# @return [May::Be<Mechanize::Page>]
-def data_at(agent, uri)
-  puts "visiting #{uri}".ljust(100) + "at #{Time.now.to_f}s".rjust(20)
-  visit(agent, uri).and_then { |page| get_page_data(page) }
+# @param filepath [String]
+# @return [May::Be<PageData>]
+def data_at(filepath)
+  puts "visiting #{filepath}".ljust(100) + "at #{Time.now.to_f}s".rjust(20)
+  get_html(filepath).and_then { |page| get_page_data(page) }
 end
 
-# @param agent [Mechanize]
-# @param pages [Array<Mechanize::Page>]
-# @return [Array<Mechanize::Page>]
-def fill_pages(agent, pages)
-  return pages if pages.empty?
-
-  pages.last[:next_page].and_then { |uri| data_at(agent, uri) }.map do |data|
-    fill_pages(agent, pages + [data])
-  end
-    .get_or_else_value(pages)
+# @return [Array<String>] - The paths of html files with all the data
+def paths
+  Dir[File.join('.', PAGES_DIR, '*')]
 end
 
-# Scrape KanjiDamage.com and create a JSON file of the data
-def main
-  agent = Mechanize.new
-
-  pages =
-    data_at(agent, FIRST_KANJI).map { |data| [data] }.get_or_else_value([])
-
-  pages = fill_pages(agent, pages)
-
-  File.write(SAVE_FILE, pages.to_json)
+# @return [Array<PageData>]
+def all_pages
+  Parallel.map(paths) { |path| data_at(path).get_or_else_value(nil) }.compact
+    .sort_by { |data| data[:index] }
 end
 
-# It's all come to this!
-main
+# Create a JSON file of all the data
+File.write(SAVE_FILE, all_pages.to_json)
+
+# TODO: Fix some bugs
+# - The kunyomi & jukugo aren't always parsed correctly
+#   @see http://www.kanjidamage.com/kanji/1740-deed-%E7%82%BA
+#   The prefixes/suffixes and lack of "*" in the kunyomi break stuff
+#   Also, sometimes KanjiDamage uses a special version of "*" instead
+#   @see http://www.kanjidamage.com/kanji/1342-pass-%E9%80%9A
