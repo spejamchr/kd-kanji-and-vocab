@@ -23,7 +23,8 @@ PAGES_DIR = 'html'
 #   translation: String;
 #   components: Array<Component>;
 #   onyomi: Maybe<String>;
-#   mnemonic: String;
+#   translation_mnemonic: String;
+#   onyomi_mnemonic: String;
 #   kunyomi: Array<Kunyomi>;
 #   jukugo: Array<Jukugo>;
 # }
@@ -219,7 +220,8 @@ def page_data_errors(data)
   obj_is(data, 'a page_data to be a Hash', Hash) do
     attr_is(data, :index, Integer) + component_errors(data[:character]) +
       attr_is(data, :translation, String) +
-      attr_is(data, :mnemonic, String) +
+      attr_is(data, :onyomi_mnemonic, String) +
+      attr_is(data, :translation_mnemonic, String) +
       check_array_with(data, :components) { |c| component_errors(c) } +
       maybe_wraps_a(data, :onyomi, String) +
       check_array_with(data, :kunyomi) { |c| kunyomi_errors(c) } +
@@ -325,17 +327,28 @@ def get_onyomi(html)
 end
 
 # @param html [Nokogiri::HTML::Document]
-# @return [String]
-def get_mnemonic(html)
-  str =
-    %w[Onyomi Mnemonic].map do |heading|
-      table_under_heading(html, heading).and_then { |t| text_at(t, 'td + td') }
-        .get_or_else_value(nil)
-    end
-      .compact
-      .join("\n\n")
+# @param heading [String]
+# @return [May::Be<String>]
+def mnemonic_at_heading(html, heading)
+  table_under_heading(html, heading).and_then { |t| text_at(t, 'td + td') }
+end
 
-  str.empty? ? text_at(html, '.description').get_or_else_value('') : str
+# @param html [Nokogiri::HTML::Document]
+# @return [String]
+def get_translation_mnemonic(html)
+  mnemonic_at_heading(html, 'Mnemonic')
+    .or_else { mnemonic_at_heading(html, 'Onyomi') }
+    .or_else { text_at(html, '.description') }
+    .get_or_else_value('')
+end
+
+# @param html [Nokogiri::HTML::Document]
+# @return [String]
+def get_onyomi_mnemonic(html)
+  mnemonic_at_heading(html, 'Onyomi')
+    .or_else { mnemonic_at_heading(html, 'Mnemonic') }
+    .or_else { text_at(html, '.description') }
+    .get_or_else_value('')
 end
 
 # @param str [String]
@@ -480,7 +493,8 @@ def get_page_data(html)
     .assign(:character) { get_character(html) }
     .map { |d| d.merge(components: get_kanji_components(html)) }
     .map { |d| d.merge(onyomi: get_onyomi(html)) }
-    .map { |d| d.merge(mnemonic: get_mnemonic(html)) }
+    .map { |d| d.merge(onyomi_mnemonic: get_onyomi_mnemonic(html)) }
+    .map { |d| d.merge(translation_mnemonic: get_translation_mnemonic(html)) }
     .map { |d| d.merge(kunyomi: get_kunyomi(html, d[:character])) }
     .map { |d| d.merge(jukugo: get_jukugo(html)) }
     .effect { |d| validate_page_data(d) }
