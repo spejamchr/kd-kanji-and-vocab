@@ -9,7 +9,7 @@ require 'mechanize'
 
 BASE_URI = 'http://www.kanjidamage.com'
 INDEX_URI = "#{BASE_URI}/kanji"
-SAVE_DIR = 'html'
+SAVE_DIR = File.join(File.dirname(__dir__), 'cache', 'html')
 
 def adjusted_name(name)
   name

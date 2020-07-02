@@ -10,12 +10,12 @@
 require 'nokogiri'
 require 'parallel'
 require 'json'
-require '../other_ruby/maybe.rb'
+require_relative 'maybe.rb'
 
 BASE_URL = 'http://www.kanjidamage.com'
 FIRST_KANJI = "#{BASE_URL}/kanji/1"
-SAVE_FILE = 'data.json'
-PAGES_DIR = 'html'
+SAVE_FILE = File.join(File.dirname(__dir__), 'cache', 'data.json')
+PAGES_DIR = File.join(File.dirname(__dir__), 'cache', 'html')
 
 # interface PageData {
 #   index: Integer;
@@ -517,7 +517,7 @@ end
 
 # @return [Array<String>] - The paths of html files with all the data
 def paths
-  Dir[File.join('.', PAGES_DIR, '*')]
+  Dir[File.join(PAGES_DIR, '*')]
 end
 
 # @return [Array<PageData>]
