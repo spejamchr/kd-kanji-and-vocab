@@ -7,9 +7,10 @@
 
 require 'mechanize'
 
+require_relative 'kd_anki.rb'
+
 BASE_URI = 'http://www.kanjidamage.com'
 INDEX_URI = "#{BASE_URI}/kanji"
-SAVE_DIR = File.join(File.dirname(__dir__), 'cache', 'html')
 
 def adjusted_name(name)
   name
@@ -21,7 +22,7 @@ def adjusted_name(name)
 end
 
 saved_paths = Dir
-  .children(SAVE_DIR)
+  .children(KDAnki::HTML_CACHE_DIR)
   .map { |p| File.basename(p, File.extname(p)).chomp('.html') }
   .map { |f| f.split('-').first.to_i.to_s }
   .map { |i| "/kanji/#{i}" }
@@ -41,5 +42,6 @@ uris.each do |uri|
   sleep 0.1 # Don't overload the website
   puts "Visiting #{uri} at #{Time.now.to_f}"
   page = Mechanize.new.get(uri)
-  File.write(File.join(SAVE_DIR, adjusted_name(page.filename)), page.body)
+  filepath = File.join(KDAnki::HTML_CACHE_DIR, adjusted_name(page.filename))
+  File.write(filepath, page.body)
 end

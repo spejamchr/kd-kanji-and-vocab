@@ -10,12 +10,9 @@
 require 'nokogiri'
 require 'parallel'
 require 'json'
-require_relative 'maybe.rb'
 
-BASE_URL = 'http://www.kanjidamage.com'
-FIRST_KANJI = "#{BASE_URL}/kanji/1"
-SAVE_FILE = File.join(File.dirname(__dir__), 'cache', 'data.json')
-PAGES_DIR = File.join(File.dirname(__dir__), 'cache', 'html')
+require_relative 'kd_anki.rb'
+require_relative 'maybe.rb'
 
 # interface PageData {
 #   index: Integer;
@@ -517,7 +514,7 @@ end
 
 # @return [Array<String>] - The paths of html files with all the data
 def paths
-  Dir[File.join(PAGES_DIR, '*')]
+  Dir[File.join(KDAnki::HTML_CACHE_DIR, '*')]
 end
 
 # @return [Array<PageData>]
@@ -527,4 +524,4 @@ def all_pages
 end
 
 # Create a JSON file of all the data
-File.write(SAVE_FILE, all_pages.to_json)
+File.write(KDAnki::DATA_CACHE_PATH, all_pages.to_json)
