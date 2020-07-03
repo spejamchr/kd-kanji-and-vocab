@@ -18,7 +18,7 @@ require_relative 'maybe.rb'
 #   index: Integer;
 #   character: String;
 #   translation: String;
-#   components: Array<Component>;
+#   components: String;
 #   onyomi: Maybe<String>;
 #   translation_mnemonic: String;
 #   onyomi_mnemonic: String;
@@ -36,32 +36,7 @@ require_relative 'maybe.rb'
 #   word: String;
 #   pronunciation: String;
 #   definition: String;
-#   kanjis: Array<String>;
 # }
-#
-# interface KanjiComponent {
-#   kind: 'kanji';
-#   kanji: String;
-# }
-#
-# interface RadicalComponent {
-#   kind: 'radical';
-#   radical: String;
-# }
-#
-# type Component = KanjiComponent | RadicalComponent
-
-# @param kanji [String]
-# @return [KanjiComponent]
-def kanji_component(kanji)
-  { kind: 'kanji', kanji: kanji }
-end
-
-# @param radical [String]
-# @return [RadicalComponent]
-def radical_component(radical)
-  { kind: 'radical', radical: radical }
-end
 
 # @param val [any] - The thing to test
 # @param msg [String] - message when the thing is not what you expect
@@ -71,6 +46,7 @@ end
 # @return [Array<String>] - an array of error messages
 def obj_is(val, msg, expected)
   is_klass = expected.is_a?(Class)
+
   if is_klass ? val.is_a?(expected) : val == expected
     block_given? ? yield : []
   else
@@ -92,101 +68,6 @@ def attr_is(hash, attr, thing)
   end
 end
 
-# @param comp [any]
-# @return [Array<String>]
-def kanji_component_errors(comp)
-  obj_is(comp, 'a kanji_component to be a Hash', Hash) do
-    attr_is(comp, :kind, 'kanji') { attr_is(comp, :kanji, String) }
-  end
-end
-
-# @param component [any]
-# @return [Boolean]
-def valid_kanji_component?(component)
-  kanji_component_errors(component).empty?
-end
-
-# @param comp [any]
-# @return [Array<String>]
-def radical_component_errors(comp)
-  obj_is(comp, 'a radical_component to be a Hash', Hash) do
-    attr_is(comp, :kind, 'radical') { attr_is(comp, :radical, String) }
-  end
-end
-
-# @param component [any]
-# @return [Boolean]
-def valid_radical_component?(component)
-  radical_component_errors(component).empty?
-end
-
-# @param component [any]
-# @return [Boolean]
-def valid_component?(component)
-  valid_kanji_component?(component) || valid_radical_component?(component)
-end
-
-# @param component [any]
-# @return [Array<String>]
-def component_errors(component)
-  return [] if valid_component?(component)
-
-  kanji_component_errors(component) + radical_component_errors(component)
-end
-
-# @param jukugo [any]
-# @return [Array<String>]
-def jukugo_errors(jukugo)
-  obj_is(jukugo, 'a jukugo to be a Hash', Hash) do
-    attr_is(jukugo, :word, String) + attr_is(jukugo, :pronunciation, String) +
-      attr_is(jukugo, :definition, String) +
-      attr_is(jukugo, :kanjis, Array) do |kanjis|
-        kanjis.flat_map do |kanji|
-          obj_is(kanji, 'a kanji to be a String', String)
-        end
-      end
-  end
-end
-
-# @param jukugo [any]
-# @param [Boolean]
-def valid_jukugo?(jukugo)
-  jukugo_errors(jukugo).empty?
-end
-
-# @param jukugo [Jukugo]
-# @raise if jukugo is not a valid Jukugo object
-def validate_jukugo(jukugo)
-  return if valid_jukugo?(jukugo)
-
-  # If the jukugo structure is invalid here it's my fault, so raise an error
-  raise "Invalid jukugo:\n" + jukugo_errors(jukugo).join("\n")
-end
-
-# @param kunyomi [any]
-# @return [Array<String>]
-def kunyomi_errors(kunyomi)
-  obj_is(kunyomi, 'a kunyomi to be a Hash', Hash) do
-    attr_is(kunyomi, :word, String) + attr_is(kunyomi, :pronunciation, String) +
-      attr_is(kunyomi, :definition, String)
-  end
-end
-
-# @param kunyomi [any]
-# @return [Boolean]
-def valid_kunyomi?(kunyomi)
-  kunyomi_errors(kunyomi).empty?
-end
-
-# @param kunyomi [Kunyomi]
-# @raise if kunyomi is not a valid Kunyomi object
-def validate_kunyomi(kunyomi)
-  return if valid_kunyomi?(kunyomi)
-
-  # If the kunyomi structure is invalid here it's my fault, so raise an error
-  raise "Invalid kunyomi:\n" + kunyomi_errors(kunyomi).join("\n").inspect
-end
-
 # @param hash [Hash] - The hash containing the thing to test
 # @param attr [any] - The key to the thing to test
 # @param expected_klass [Class]
@@ -198,9 +79,7 @@ def maybe_wraps_a(hash, attr, expected_klass)
     if klass == expected_klass
       []
     else
-      [
-        "Expected #{attr} to be May::Be<#{expected_klass}> but got May::Be<#{klass}>"
-      ]
+      ["Expected #{attr} to be May::Be<#{expected_klass}> but got May::Be<#{klass}>"]
     end
   end
 end
@@ -213,34 +92,70 @@ def check_array_with(hash, attr, &block)
   attr_is(hash, attr, Array) { |comps| comps.flat_map(&block) }
 end
 
+# @param jukugo [any]
+# @return [Array<String>]
+def jukugo_errors(jukugo)
+  obj_is(jukugo, 'a jukugo to be a Hash', Hash) do
+    attr_is(jukugo, :word, String) +
+      attr_is(jukugo, :pronunciation, String) +
+      attr_is(jukugo, :definition, String)
+  end
+end
+
+# @param kunyomi [any]
+# @return [Array<String>]
+def kunyomi_errors(kunyomi)
+  obj_is(kunyomi, 'a kunyomi to be a Hash', Hash) do
+    attr_is(kunyomi, :word, String) +
+      attr_is(kunyomi, :pronunciation, String) +
+      attr_is(kunyomi, :definition, String)
+  end
+end
+
 # @param data [any]
 # @return [Array<String>]
 def page_data_errors(data)
   obj_is(data, 'a page_data to be a Hash', Hash) do
-    attr_is(data, :index, Integer) + attr_is(data, :character, String) +
+    attr_is(data, :index, Integer) +
+      attr_is(data, :character, String) +
       attr_is(data, :translation, String) +
       attr_is(data, :onyomi_mnemonic, String) +
       attr_is(data, :translation_mnemonic, String) +
-      check_array_with(data, :components) { |c| component_errors(c) } +
+      attr_is(data, :components, String) +
       maybe_wraps_a(data, :onyomi, String) +
       check_array_with(data, :kunyomi) { |c| kunyomi_errors(c) } +
       check_array_with(data, :jukugo) { |c| jukugo_errors(c) }
   end
 end
 
-# @param data [any]
-# @return [Boolean]
-def valid_page_data?(data)
-  page_data_errors(data).empty?
+# @param jukugo [Jukugo]
+# @raise if jukugo is not a valid Jukugo object
+def validate_jukugo(jukugo)
+  errs = jukugo_errors(jukugo)
+  return if errs.empty?
+
+  # If the jukugo structure is invalid here it's my fault, so raise an error
+  raise "Invalid jukugo:\n" + errs.join("\n")
+end
+
+# @param kunyomi [Kunyomi]
+# @raise if kunyomi is not a valid Kunyomi object
+def validate_kunyomi(kunyomi)
+  errs = kunyomi_errors(kunyomi)
+  return if errs.empty?
+
+  # If the kunyomi structure is invalid here it's my fault, so raise an error
+  raise "Invalid kunyomi:\n" + errs.join("\n").inspect
 end
 
 # @param data [PageData]
 # @raise if data is not a valid PageData object
 def validate_page_data(data)
-  return if valid_page_data?(data)
+  errs = page_data_errors(data)
+  return if errs.empty?
 
   # If the data is invalid here it's my fault, so raise an error
-  raise "Invalid page data:\n" + page_data_errors(data).join("\n")
+  raise "Invalid page data:\n" + errs.join("\n")
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -251,61 +166,56 @@ def text_at(html, location)
   s = yield(s) if block_given?
   s = s.text.strip.gsub("\r", '')
 
-  s.empty? ? May::None.new : May::Some.new(s)
+  s.empty? ? May.none : May.some(s)
 end
 
 # @param arr [Array<A>]
 # @return [May::Be<A>]
 def head(arr)
-  arr.first ? May::Some.new(arr.first) : May::None.new
+  arr.first ? May.some(arr.first) : May.none
 end
 
 # @param str [String]
 # @return [May::Be<Integer>]
 def str_to_int(str)
-  str == str.to_i.to_s ? May::Some.new(str.to_i) : May::None.new
+  str == str.to_i.to_s ? May.some(str.to_i) : May.none
 end
 
 # @param html [Nokogiri::HTML::Document]
 # @return [May::Be<Integer>]
 def get_page_index(html)
-  text_at(html, '.navigation-header > .text-centered').map do |str|
-    str.match(/Number\s+(\d+)/m).to_a.reverse
-  end
+  text_at(html, '.navigation-header > .text-centered')
+    .map { |str| str.match(/Number\s+(\d+)/m).to_a.reverse }
     .and_then { |arr| head(arr) }
     .and_then { |str| str_to_int(str) }
 end
 
 # @param html [Nokogiri::HTML::Document]
-# @return [Array<Component>]
+# @return [String]
 def get_kanji_components(html)
-  html.search('.span8 > .component').map do |c|
-    if c.text.empty?
-      head(c.search('[alt]')).map { |a| radical_component(a['alt']) }
-        .get_or_else_value(nil)
-    else
-      kanji_component(c.text)
-    end
-  end
-    .compact
+  prefix = head(html.search('h1')).map(&:text).get_or_else_value('').strip.gsub(/\s+/, ' ')
+
+  text_at(html, '.row.navigation-header + .row > .span8')
+    .map { |text| text.gsub(/\s+/, ' ').delete_prefix(prefix).strip }
+    .get_or_else_value('')
 end
 
 # @param node [Nokogiri::XML::Node]
 # @return [May::Be<Nokogiri::XML::Node>]
 def maybe_next(node)
   sibling = node.next_sibling
-  sibling ? May::Some.new(sibling) : May::None.new
+  sibling ? May.some(sibling) : May.none
 end
 
 # @param html [Nokogiri::HTML::Document]
 # @param heading [String]
 # @return [May::Be<Nokogiri::XML::Element>]
 def table_under_heading(html, heading)
-  head(html.search('h2').select { |h2| h2.text == heading }).and_then do |n|
-    maybe_next(n)
-  end
+  head(html.search('h2')
+    .select { |h2| h2.text == heading })
     .and_then { |n| maybe_next(n) }
-    .and_then { |el| el.name == 'table' ? May::Some.new(el) : May::None.new }
+    .and_then { |n| maybe_next(n) }
+    .and_then { |el| el.name == 'table' ? May.some(el) : May.none }
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -381,10 +291,7 @@ end
 # @return May::Be<String>
 def kunyomi_word(kanji, table_row)
   head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jparens(prefix_in(spans)) +
-      kanji +
-      tail_in(spans) +
-      jparens(suffix_in(spans))
+    jparens(prefix_in(spans)) + kanji + tail_in(spans) + jparens(suffix_in(spans))
   end
 end
 
@@ -396,22 +303,26 @@ def kunyomi_pronunciation(table_row)
   end
 end
 
+# @param table_row [Nokogiri::XML::Element]
+# @param character [String]
+# @return [May::Be<Kunyomi>]
+def kunyomi_from_tr(table_row, character)
+  May.some({})
+    .assign(:word) { kunyomi_word(character, table_row) }
+    .assign(:pronunciation) { kunyomi_pronunciation(table_row) }
+    .assign(:definition) { text_at(table_row, 'td + td') }
+end
+
 # @param html [Nokogiri::HTML::Document]
 # @param character [String]
 # @return [Array<Kunyomi>]
 def get_kunyomi(html, character)
-  table_under_heading(html, 'Kunyomi').map do |t|
-    t.search('tr').map do |tr|
-      May::Some.new({})
-        .assign(:word) { kunyomi_word(character, tr) }
-        .assign(:pronunciation) { kunyomi_pronunciation(tr) }
-        .assign(:definition) { text_at(tr, 'td', &:last) }
-        .effect { |o| validate_kunyomi(o) }
-        .get_or_else_value(nil)
-    end
-      .compact
-  end
+  table_under_heading(html, 'Kunyomi')
+    .map { |t| t.search('tr').to_a }
     .get_or_else_value([])
+    .map { |tr| kunyomi_from_tr(tr, character).get_or_else_value(nil) }
+    .compact
+    .each { |o| validate_kunyomi(o) }
 end
 
 # @param spans [Nokogiri::XML::NodeSet]
@@ -428,51 +339,47 @@ end
 
 # @param kanji [String]
 # @param table_row [Nokogiri::XML::Element]
-# @return May::Be<String>
+# @return [May::Be<String>]
 def jukugo_word(table_row)
   head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jparens(prefix_in(spans)) +
-      jukugo_kanji_in(spans) +
-      jparens(suffix_in(spans))
+    jparens(prefix_in(spans)) + jukugo_kanji_in(spans) + jparens(suffix_in(spans))
   end
 end
 
 # @param table_row [Nokogiri::XML::Element]
-# @return May::Be<String>
+# @return [May::Be<String>]
 def jukugo_pronunciation(table_row)
   head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jparens(prefix_in(spans)) +
-      jukugo_pronunciation_in(spans) +
-      jparens(suffix_in(spans))
+    jparens(prefix_in(spans)) + jukugo_pronunciation_in(spans) + jparens(suffix_in(spans))
   end
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return [May::Be<Jukugo>]
+def jukugo_from_tr(table_row)
+  May.some({})
+    .assign(:word) { jukugo_word(table_row) }
+    .assign(:pronunciation) { jukugo_pronunciation(table_row) }
+    .assign(:definition) { text_at(table_row, 'td + td') }
 end
 
 # @param html [Nokogiri::HTML::Document]
 # @return [Array<Jukugo>]
 def get_jukugo(html)
-  table_under_heading(html, 'Jukugo').map do |t|
-    t.search('tr').map do |tr|
-      children = tr.search('td > p').children
-      kanjis = children.search('.component').map(&:text)
-
-      May::Some.new({})
-        .assign(:word) { jukugo_word(tr) }
-        .assign(:pronunciation) { jukugo_pronunciation(tr) }
-        .assign(:definition) { head(children).map(&:text).map(&:strip) }
-        .map { |h| h.merge(kanjis: kanjis) }
-        .effect { |h| validate_jukugo(h) }
-        .get_or_else_value(nil)
-    end
-      .compact
-  end
+  table_under_heading(html, 'Jukugo')
+    .map { |t| t.search('tr').to_a }
     .get_or_else_value([])
+    .map { |tr| jukugo_from_tr(tr).get_or_else_value(nil) }
+    .compact
+    .each { |o| validate_jukugo(o) }
 end
 
 # @param html [Nokogiri::HTML::Document]
 # @return [May::Be<PageData>]
 def get_page_data(html)
-  May::Some.new({}).assign(:translation) { text_at(html, 'h1 > .translation') }
+  May.some({})
     .assign(:index) { get_page_index(html) }
+    .assign(:translation) { text_at(html, 'h1 > .translation') }
     .assign(:character) { text_at(html, 'h1 > .kanji_character') }
     .map { |d| d.merge(components: get_kanji_components(html)) }
     .map { |d| d.merge(onyomi: get_onyomi(html)) }
@@ -484,18 +391,16 @@ def get_page_data(html)
 end
 
 # @param filepath [String]
-# @return [May::Be<Nokogiri::HTML::Document>]
+# @return Nokogiri::HTML::Document
 def get_html(filepath)
-  May::Some.new(Nokogiri.HTML(File.read(filepath)))
-rescue StandardError
-  May::None.new
+  Nokogiri.HTML(File.read(filepath))
 end
 
 # @param filepath [String]
 # @return [May::Be<PageData>]
 def data_at(filepath)
   puts "visiting #{filepath}".ljust(100) + "at #{Time.now.to_f}s".rjust(20)
-  get_html(filepath).and_then { |page| get_page_data(page) }
+  get_page_data(get_html(filepath))
 end
 
 # @return [Array<String>] - The paths of html files with all the data
@@ -505,7 +410,9 @@ end
 
 # @return [Array<PageData>]
 def all_pages
-  Parallel.map(paths) { |path| data_at(path).get_or_else_value(nil) }.compact
+  Parallel
+    .map(paths) { |path| data_at(path).get_or_else_value(nil) }
+    .compact
     .sort_by { |data| data[:index] }
 end
 

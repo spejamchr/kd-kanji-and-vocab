@@ -34,6 +34,17 @@ module May
   class MustReturnMayBeError < MayError; end
   class UnexpectedNilError < MayError; end
   class ValueMustBeHashError < MayError; end
+
+  # @param value [any]
+  # @return [May::Some]
+  def self.some(value)
+    Some.new(value)
+  end
+
+  # @return [May::None]
+  def self.none
+    None.new
+  end
 end
 
 class May::Be
@@ -49,7 +60,7 @@ class May::Be
 end
 
 class May::Some < May::Be
-  # @param value [String]
+  # @param value [any]
   def initialize(value)
     @value = value
   end
