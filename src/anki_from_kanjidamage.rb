@@ -16,7 +16,7 @@ require_relative 'maybe.rb'
 
 # interface PageData {
 #   index: Integer;
-#   character: Component;
+#   character: String;
 #   translation: String;
 #   components: Array<Component>;
 #   onyomi: Maybe<String>;
@@ -36,7 +36,7 @@ require_relative 'maybe.rb'
 #   word: String;
 #   pronunciation: String;
 #   definition: String;
-#   components: Array<Component>;
+#   kanjis: Array<String>;
 # }
 #
 # interface KanjiComponent {
@@ -140,8 +140,10 @@ def jukugo_errors(jukugo)
   obj_is(jukugo, 'a jukugo to be a Hash', Hash) do
     attr_is(jukugo, :word, String) + attr_is(jukugo, :pronunciation, String) +
       attr_is(jukugo, :definition, String) +
-      attr_is(jukugo, :components, Array) do |comps|
-        comps.flat_map { |c| component_errors(c) }
+      attr_is(jukugo, :kanjis, Array) do |kanjis|
+        kanjis.flat_map do |kanji|
+          obj_is(kanji, 'a kanji to be a String', String)
+        end
       end
   end
 end
@@ -215,7 +217,7 @@ end
 # @return [Array<String>]
 def page_data_errors(data)
   obj_is(data, 'a page_data to be a Hash', Hash) do
-    attr_is(data, :index, Integer) + component_errors(data[:character]) +
+    attr_is(data, :index, Integer) + attr_is(data, :character, String) +
       attr_is(data, :translation, String) +
       attr_is(data, :onyomi_mnemonic, String) +
       attr_is(data, :translation_mnemonic, String) +
@@ -272,17 +274,6 @@ def get_page_index(html)
   end
     .and_then { |arr| head(arr) }
     .and_then { |str| str_to_int(str) }
-end
-
-# @param html [Nokogiri::HTML::Document]
-# @return [May::Be<String>]
-def get_character(html)
-  text_at(html, 'h1 > .kanji_character').map { |k| kanji_component(k) }
-    .or_else do
-    head(html.search('h1 > .kanji_character > img[alt]')).map do |img|
-      radical_component(img[:alt])
-    end
-  end
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -406,17 +397,13 @@ def kunyomi_pronunciation(table_row)
 end
 
 # @param html [Nokogiri::HTML::Document]
-# @param character [Component]
+# @param character [String]
 # @return [Array<Kunyomi>]
 def get_kunyomi(html, character)
-  return [] unless character[:kind] == 'kanji'
-
-  kanji = character[:kanji]
-
   table_under_heading(html, 'Kunyomi').map do |t|
     t.search('tr').map do |tr|
       May::Some.new({})
-        .assign(:word) { kunyomi_word(kanji, tr) }
+        .assign(:word) { kunyomi_word(character, tr) }
         .assign(:pronunciation) { kunyomi_pronunciation(tr) }
         .assign(:definition) { text_at(tr, 'td', &:last) }
         .effect { |o| validate_kunyomi(o) }
@@ -466,14 +453,13 @@ def get_jukugo(html)
   table_under_heading(html, 'Jukugo').map do |t|
     t.search('tr').map do |tr|
       children = tr.search('td > p').children
-      components =
-        children.search('.component').map { |c| kanji_component(c.text) }
+      kanjis = children.search('.component').map(&:text)
 
       May::Some.new({})
         .assign(:word) { jukugo_word(tr) }
         .assign(:pronunciation) { jukugo_pronunciation(tr) }
         .assign(:definition) { head(children).map(&:text).map(&:strip) }
-        .map { |h| h.merge(components: components) }
+        .map { |h| h.merge(kanjis: kanjis) }
         .effect { |h| validate_jukugo(h) }
         .get_or_else_value(nil)
     end
@@ -487,7 +473,7 @@ end
 def get_page_data(html)
   May::Some.new({}).assign(:translation) { text_at(html, 'h1 > .translation') }
     .assign(:index) { get_page_index(html) }
-    .assign(:character) { get_character(html) }
+    .assign(:character) { text_at(html, 'h1 > .kanji_character') }
     .map { |d| d.merge(components: get_kanji_components(html)) }
     .map { |d| d.merge(onyomi: get_onyomi(html)) }
     .map { |d| d.merge(onyomi_mnemonic: get_onyomi_mnemonic(html)) }
