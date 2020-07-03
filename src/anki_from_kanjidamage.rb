@@ -2,8 +2,8 @@
 
 # Create a JSON file of structured data from downloaded KanjiDamage pages
 #
-# Searches for pages in ./html/. Use the ./download_kanjidamage.rb script to
-# populate that directory.
+# Searches for pages in ../cache/html/. Use the ./download_kanjidamage.rb
+# script to populate that directory.
 #
 # Use a functional style for everything.
 
@@ -188,6 +188,21 @@ def get_page_index(html)
     .map { |str| str.match(/Number\s+(\d+)/m).to_a.reverse }
     .and_then { |arr| head(arr) }
     .and_then { |str| str_to_int(str) }
+    .or_effect { puts "Could not get page index from page: #{html.title.inspect}" }
+end
+
+# @param html [Nokogiri::HTML::Document]
+# @return [May::Be<String>]
+def get_kanji_translation(html, index)
+  text_at(html, 'h1 > .translation')
+    .or_effect { puts "Could not get translation from page: #{html.title.inspect} (#{index})" }
+end
+
+# @param html [Nokogiri::HTML::Document]
+# @return [May::Be<String>]
+def get_kanji_character(html, translation)
+  text_at(html, 'h1 > .kanji_character')
+    .or_effect { puts "Could not get kanji character from page: #{translation}" }
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -374,19 +389,91 @@ def get_jukugo(html)
     .each { |o| validate_jukugo(o) }
 end
 
+# @param data [PageData]
+# @return [Boolean]
+def has_more_than_only_essentials?(data)
+  data.fetch(:components).length.positive? ||
+    data.fetch(:onyomi).map { true }.get_or_else_value(false) ||
+    data.fetch(:onyomi_mnemonic).length.positive? ||
+    data.fetch(:translation_mnemonic).length.positive? ||
+    data.fetch(:kunyomi).count.positive? ||
+    data.fetch(:jukugo).count.positive?
+end
+
+# @param data [PageData]
+# @return [May::Be<PageData>]
+def ensure_more_than_only_essentials(data)
+  return May.some(data) if has_more_than_only_essentials?(data)
+
+  i, c, t = data.fetch_values(:index, :character, :translation)
+  puts "Only has essentials: [#{i}] #{c}: #{t}. Ignoring."
+  May.none
+end
+
+# @param data [PageData]
+# @return [May::Be<PageData>]
+def ensure_character_is_exactly_one_character(data)
+  return May.some(data) if data.fetch(:character).length == 1
+
+  i, c, t = data.fetch_values(:index, :character, :translation)
+  puts "Character length is not 1: [#{i}] #{c}: #{t}. Ignoring."
+  May.none
+end
+
+# @param data [PageData]
+# @return [Boolean]
+def has_onyomi_or_vocab?(data)
+  data.fetch(:onyomi).map { true }.get_or_else_value(false) ||
+    data.fetch(:kunyomi).count.positive? ||
+    data.fetch(:jukugo).count.positive?
+end
+
+# A stricter form of ensure_more_than_only_essentials
+#
+# It's nice to separate the two for logging. This rule is more strict, so it's
+# also more likely to cause trouble
+#
+# @param data [PageData]
+# @return [May::Be<PageData>]
+def ensure_has_onyomic_or_vocab(data)
+  return May.some(data) if has_onyomi_or_vocab?(data)
+
+  i, c, t = data.fetch_values(:index, :character, :translation)
+  puts "Does not have onyomi or vocab: [#{i}] #{c}: #{t}. Ignoring."
+  May.none
+end
+
+# Apply a set of heuristics for weeding radicals out of the kanji info.
+#
+# Most rules when building the page data are hard and fast: Each kanji must
+# have a kanji character and translation, for example. However, the rules are
+# too broad, and some radicals are being included as kanji.
+#
+# Because heuristics aren't perfect, log each time one is applied; this logging
+# should happen in the heuristic method itself.
+#
+# @param data [PageData]
+# @return [May::Be<PageData>]
+def apply_heuristics(data)
+  ensure_more_than_only_essentials(data)
+    .and_then { |d| ensure_character_is_exactly_one_character(d) }
+    .and_then { |d| ensure_has_onyomic_or_vocab(d) }
+end
+
 # @param html [Nokogiri::HTML::Document]
 # @return [May::Be<PageData>]
 def get_page_data(html)
   May.some({})
     .assign(:index) { get_page_index(html) }
-    .assign(:translation) { text_at(html, 'h1 > .translation') }
-    .assign(:character) { text_at(html, 'h1 > .kanji_character') }
+    .assign(:translation) { |d| get_kanji_translation(html, d.fetch(:index)) }
+    .assign(:character) { |d| get_kanji_character(html, d.fetch(:translation)) }
     .map { |d| d.merge(components: get_kanji_components(html)) }
     .map { |d| d.merge(onyomi: get_onyomi(html)) }
     .map { |d| d.merge(onyomi_mnemonic: get_onyomi_mnemonic(html)) }
     .map { |d| d.merge(translation_mnemonic: get_translation_mnemonic(html)) }
     .map { |d| d.merge(kunyomi: get_kunyomi(html, d[:character])) }
     .map { |d| d.merge(jukugo: get_jukugo(html)) }
+    .and_then { |d| apply_heuristics(d) }
     .effect { |d| validate_page_data(d) }
 end
 
@@ -399,7 +486,6 @@ end
 # @param filepath [String]
 # @return [May::Be<PageData>]
 def data_at(filepath)
-  puts "visiting #{filepath}".ljust(100) + "at #{Time.now.to_f}s".rjust(20)
   get_page_data(get_html(filepath))
 end
 
