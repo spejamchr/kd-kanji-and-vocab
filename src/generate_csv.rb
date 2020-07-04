@@ -24,20 +24,19 @@ require 'csv'
 #
 # Anki supports "Notes", which can generate one or more flashcard per node.
 # However, to have full control over the sorting of the cards, each note should
-# have a single card. The note should have `index` as the first column in the
-# import, also.
+# have a single card. The order of the cards' entries is important.
 #
 # interface KanjiMeaningNote {
-#   index: Integer;
 #   kanji: String;
+#   index: Integer;
 #   meaning: String;
 #   components: String;
 #   mnemonic: String;
 # }
 #
 # interface KanjiOnyomiNote {
-#   index: Integer;
 #   kanji: String;
+#   index: Integer;
 #   meaning: String;
 #   components: String;
 #   onyomi: String;
@@ -45,8 +44,8 @@ require 'csv'
 # }
 #
 # interface VocabularyNote {
-#   index: Integer;
 #   word: String;
+#   index: Integer;
 #   pronunciation: String;
 #   definition: String;
 # }
@@ -58,8 +57,8 @@ SEPARATION = 2
 # @param kanjis [Array<String>]
 def kanji_meaning_from_page_data(data, kanjis)
   {
-    index: kanjis.index(data.fetch(:character)) - SEPARATION,
     kanji: data.fetch(:character),
+    index: kanjis.index(data.fetch(:character)) - SEPARATION,
     meaning: data.fetch(:translation),
     components: data.fetch(:components),
     mnemonic: data.fetch(:translation_mnemonic),
@@ -71,8 +70,8 @@ end
 def kanji_onyomi_from_page_data(data, kanjis)
   # HACK: Raise an error if the index isn't found by subtracting 0
   {
-    index: kanjis.index(data.fetch(:character)) - 0,
     kanji: data.fetch(:character),
+    index: kanjis.index(data.fetch(:character)) - 0,
     meaning: data.fetch(:translation),
     components: data.fetch(:components),
     onyomi: data.fetch(:onyomi).fetch(:value),
@@ -85,8 +84,8 @@ end
 # @param kanjis [Array<String>]
 def vocab_from_kunyomi(kunyomi, data, kanjis)
   {
-    index: kanjis.index(data.fetch(:character)) + SEPARATION,
     word: kunyomi.fetch(:word),
+    index: kanjis.index(data.fetch(:character)) + SEPARATION,
     pronunciation: kunyomi.fetch(:pronunciation),
     definition: kunyomi.fetch(:definition),
   }
@@ -98,8 +97,8 @@ def vocab_from_jukugo(jukugo, kanjis)
   index = jukugo.fetch(:word).split(//).map { |k| kanjis.index(k) }.compact.max + SEPARATION
 
   {
-    index: index,
     word: jukugo.fetch(:word),
+    index: index,
     pronunciation: jukugo.fetch(:pronunciation),
     definition: jukugo.fetch(:definition),
   }
@@ -144,6 +143,7 @@ ordered = (meanings + onyomis + vocabs).sort_by.with_index { |v, i| [v.fetch(:in
 # Straighten out the indices
 ordered.each_with_index { |entry, index| entry[:index] = index }
 
+# The indices are uniq now, so no need for special stable sorting
 meanings.sort_by! { |m| m.fetch(:index) }
 onyomis.sort_by! { |o| o.fetch(:index) }
 vocabs.sort_by! { |v| v.fetch(:index) }
