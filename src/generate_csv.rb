@@ -5,11 +5,12 @@
 # Searches for data at ../cache/data.json. Use the ./anki_from_kanjidamage.rb
 # script to generate that data.
 #
-# NOTE: This script should be "dumb". It shouldn't, for example try to make
+# This script shouldn't filter data. For example, it shouldn't try to make
 # decisions about which characters are kanji and deserve to be made into cards
 # and which are just radicals and don't need carding. All those types of
-# decisions happen in ./anki_from_kanjidamage.rb. This script should only take
-# the data and transform it into a CSV.
+# decisions happen in ./anki_from_kanjidamage.rb.
+#
+# This script's smarts are in sorting the given data into a decent learning order.
 
 require_relative 'kd_anki.rb'
 require 'json'
@@ -50,8 +51,10 @@ require 'csv'
 #   definition: String;
 # }
 
-# Separate meaning cars from onyomi cards, and onyomi cards from vocab cards.
-SEPARATION = 2
+# Separate meaning cars from onyomi cards, and onyomi cards from vocab cards,
+# so that onyomi only come once the meanings are learned, and vocab comes after
+# onyomi are learned.
+SEPARATION = 20
 
 # @param data [PageData]
 # @param kanjis [Array<String>]
