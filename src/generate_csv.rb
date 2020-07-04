@@ -4,6 +4,12 @@
 #
 # Searches for data at ../cache/data.json. Use the ./anki_from_kanjidamage.rb
 # script to generate that data.
+#
+# NOTE: This script should be "dumb". It shouldn't, for example try to make
+# decisions about which characters are kanji and deserve to be made into cards
+# and which are just radicals and don't need carding. All those types of
+# decisions happen in ./anki_from_kanjidamage.rb. This script should only take
+# the data and transform it into a CSV.
 
 require_relative 'kd_anki.rb'
 require 'json'
@@ -131,7 +137,9 @@ onyomis = data
 
 vocabs = data.flat_map { |e| vocabs_from_page_data(e, kanjis) }.uniq { |v| v[:word] }
 
-ordered = (meanings + onyomis + vocabs).sort_by { |v| v.fetch(:index) }
+# Ruby's sort methods are unstable. Use #with_index to make this a stable sort.
+# @see https://stackoverflow.com/a/15442966
+ordered = (meanings + onyomis + vocabs).sort_by.with_index { |v, i| [v.fetch(:index), i] }
 
 # Straighten out the indices
 ordered.each_with_index { |entry, index| entry[:index] = index }
