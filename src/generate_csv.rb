@@ -33,6 +33,9 @@ require 'csv'
 #   meaning: String;
 #   components: String;
 #   mnemonic: String;
+#   description: String;
+#   link: String;
+#   stars: Integer;
 # }
 #
 # interface KanjiOnyomiNote {
@@ -42,6 +45,9 @@ require 'csv'
 #   components: String;
 #   onyomi: String;
 #   mnemonic: String;
+#   description: String;
+#   link: String;
+#   stars: Integer;
 # }
 #
 # interface VocabularyNote {
@@ -49,12 +55,33 @@ require 'csv'
 #   index: Integer;
 #   pronunciation: String;
 #   definition: String;
+#   links: String;
+#   non_kd_kanjis: String;
+#   stars: Integer;
 # }
 
 # Separate meaning cars from onyomi cards, and onyomi cards from vocab cards,
 # so that onyomi only come once the meanings are learned, and vocab comes after
 # onyomi are learned.
 SEPARATION = 20
+
+# The KanjiDamage Search path
+KD_SEARCH = 'http://www.kanjidamage.com/kanji/search?q={kanji}'
+
+# The Jisho Search path
+JISHO_SEARCH = 'https://jisho.org/search/{kanji}%23kanji'
+
+# @param kanji [String] a single kanji to search for on KanjiDamage
+# @return [String] the html anchor element linking to that kanji's page
+def link_to_kd(kanji)
+  %(<a href="#{KD_SEARCH.gsub('{kanji}', kanji)}">kanjidamage: #{kanji}</a>)
+end
+
+# @param kanji [String] a single kanji to search for on Jisho
+# @return [String] the html anchor element linking to that search
+def link_to_jisho(kanji, msg)
+  %(<a href="#{JISHO_SEARCH.gsub('{kanji}', kanji)}">#{msg}</a>)
+end
 
 # @param data [PageData]
 # @param kanjis [Array<String>]
@@ -65,6 +92,9 @@ def kanji_meaning_from_page_data(data, kanjis)
     meaning: data.fetch(:translation),
     components: data.fetch(:components),
     mnemonic: data.fetch(:translation_mnemonic),
+    description: data.fetch(:description),
+    link: link_to_kd(data.fetch(:character)),
+    stars: data.fetch(:stars),
   }
 end
 
@@ -79,6 +109,9 @@ def kanji_onyomi_from_page_data(data, kanjis)
     components: data.fetch(:components),
     onyomi: data.fetch(:onyomi).fetch(:value),
     mnemonic: data.fetch(:onyomi_mnemonic),
+    description: data.fetch(:description),
+    link: link_to_kd(data.fetch(:character)),
+    stars: data.fetch(:stars),
   }
 end
 
@@ -91,19 +124,36 @@ def vocab_from_kunyomi(kunyomi, data, kanjis)
     index: kanjis.index(data.fetch(:character)) + SEPARATION,
     pronunciation: kunyomi.fetch(:pronunciation),
     definition: kunyomi.fetch(:definition),
+    links: link_to_kd(data.fetch(:character)),
+    non_kd_kanjis: '',
+    stars: kunyomi.fetch(:stars),
   }
+end
+
+# @param non_kd_kanjis [Array<String>]
+# @return [String]
+def non_kd_kanjis_msg(non_kd_kanjis)
+  non_kd_kanjis
+    .map { |k| link_to_jisho(k, "Find #{k} on jisho (it's not taught on KanjiDamage)") }
+    .join
 end
 
 # @param jukugo [Jukugo]
 # @param kanjis [Array<String>]
 def vocab_from_jukugo(jukugo, kanjis)
-  index = jukugo.fetch(:word).split(//).map { |k| kanjis.index(k) }.compact.max + SEPARATION
+  j_kanjis = jukugo.fetch(:kanjis)
+  j_kd_kanjis = j_kanjis.select { |j| kanjis.include?(j) }
+  non_kd_kanjis = j_kanjis - j_kd_kanjis
+  index = j_kd_kanjis.map { |k| kanjis.index(k) }.max + SEPARATION + 50 * non_kd_kanjis.count
 
   {
     word: jukugo.fetch(:word),
     index: index,
     pronunciation: jukugo.fetch(:pronunciation),
     definition: jukugo.fetch(:definition),
+    links: j_kd_kanjis.map { |j| link_to_kd(j) }.join,
+    non_kd_kanjis: non_kd_kanjis_msg(non_kd_kanjis),
+    stars: jukugo.fetch(:stars),
   }
 end
 

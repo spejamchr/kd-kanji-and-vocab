@@ -18,10 +18,12 @@ require_relative 'maybe.rb'
 #   index: Integer;
 #   character: String;
 #   translation: String;
+#   stars: Integer;
 #   components: String;
-#   onyomi: Maybe<String>;
+#   onyomi: May::Be<String>;
 #   translation_mnemonic: String;
 #   onyomi_mnemonic: String;
+#   description: String;
 #   kunyomi: Array<Kunyomi>;
 #   jukugo: Array<Jukugo>;
 # }
@@ -30,13 +32,26 @@ require_relative 'maybe.rb'
 #   word: String;
 #   pronunciation: String;
 #   definition: String;
+#   stars: Integer;
 # }
 #
 # interface Jukugo {
 #   word: String;
+#   kanjis: Array<String>;
 #   pronunciation: String;
 #   definition: String;
+#   stars: Integer;
 # }
+
+HIRAGANA = ("\u3041".."\u3093").map(&:freeze).freeze
+KATAKANA = ("\u30A1".."\u30F6").map(&:freeze).freeze
+ASCII = ("\u0000".."\u007F").map(&:freeze).freeze
+PUNCTUATION = (
+  ("\uff01".."\uff19").to_a +
+  ("\uff1a".."\uff3a").to_a +
+  ["　", "ー"]
+).map(&:freeze).freeze
+NON_KANJI = (HIRAGANA + KATAKANA + ASCII + PUNCTUATION).freeze
 
 # @param val [any] - The thing to test
 # @param msg [String] - message when the thing is not what you expect
@@ -97,8 +112,10 @@ end
 def jukugo_errors(jukugo)
   obj_is(jukugo, 'a jukugo to be a Hash', Hash) do
     attr_is(jukugo, :word, String) +
+      check_array_with(jukugo, :kanjis) { |k| obj_is(k, 'a kanji to be a String', String) } +
       attr_is(jukugo, :pronunciation, String) +
-      attr_is(jukugo, :definition, String)
+      attr_is(jukugo, :definition, String) +
+      attr_is(jukugo, :stars, Integer)
   end
 end
 
@@ -108,7 +125,8 @@ def kunyomi_errors(kunyomi)
   obj_is(kunyomi, 'a kunyomi to be a Hash', Hash) do
     attr_is(kunyomi, :word, String) +
       attr_is(kunyomi, :pronunciation, String) +
-      attr_is(kunyomi, :definition, String)
+      attr_is(kunyomi, :definition, String) +
+      attr_is(kunyomi, :stars, Integer)
   end
 end
 
@@ -119,10 +137,12 @@ def page_data_errors(data)
     attr_is(data, :index, Integer) +
       attr_is(data, :character, String) +
       attr_is(data, :translation, String) +
-      attr_is(data, :onyomi_mnemonic, String) +
-      attr_is(data, :translation_mnemonic, String) +
+      attr_is(data, :stars, Integer) +
       attr_is(data, :components, String) +
       maybe_wraps_a(data, :onyomi, String) +
+      attr_is(data, :translation_mnemonic, String) +
+      attr_is(data, :onyomi_mnemonic, String) +
+      attr_is(data, :description, String) +
       check_array_with(data, :kunyomi) { |c| kunyomi_errors(c) } +
       check_array_with(data, :jukugo) { |c| jukugo_errors(c) }
   end
@@ -169,6 +189,13 @@ def text_at(html, location)
   s.empty? ? May.none : May.some(s)
 end
 
+# @param html [Nokogiri::HTML::Document]
+# @param location [String]
+# @return [May:Be<Integer>]
+def stars_at(html, location)
+  text_at(html, location).map { |t| t.count('★') }
+end
+
 # @param arr [Array<A>]
 # @return [May::Be<A>]
 def head(arr)
@@ -181,6 +208,18 @@ def str_to_int(str)
   str == str.to_i.to_s ? May.some(str.to_i) : May.none
 end
 
+# Log a message when a required thing is missing
+# @param msg [String]
+def rlog(msg)
+  puts "[required] #{msg}"
+end
+
+# Log a message when a heuristic excludes data
+# @param msg [String]
+def hlog(msg)
+  puts "[heuristic] #{msg}"
+end
+
 # @param html [Nokogiri::HTML::Document]
 # @return [May::Be<Integer>]
 def get_page_index(html)
@@ -188,21 +227,28 @@ def get_page_index(html)
     .map { |str| str.match(/Number\s+(\d+)/m).to_a.reverse }
     .and_then { |arr| head(arr) }
     .and_then { |str| str_to_int(str) }
-    .or_effect { puts "Could not get page index from page: #{html.title.inspect}" }
+    .or_effect { rlog "Could not get page index from page: #{html.title.inspect}" }
 end
 
 # @param html [Nokogiri::HTML::Document]
 # @return [May::Be<String>]
 def get_kanji_translation(html, index)
   text_at(html, 'h1 > .translation')
-    .or_effect { puts "Could not get translation from page: #{html.title.inspect} (#{index})" }
+    .or_effect { rlog "Could not get translation from page: #{html.title.inspect} (#{index})" }
 end
 
 # @param html [Nokogiri::HTML::Document]
 # @return [May::Be<String>]
 def get_kanji_character(html, translation)
   text_at(html, 'h1 > .kanji_character')
-    .or_effect { puts "Could not get kanji character from page: #{translation}" }
+    .or_effect { rlog "Could not get kanji character from page: #{translation}" }
+end
+
+# @param html [Nokogiri::HTML::Document]
+# @return [May::Be<Integer>]
+def get_kanji_stars(html, character, translation)
+  stars_at(html, '.text-righted > .usefulness-stars[title]')
+    .or_effect { rlog "Could not get kanji stars from page: #{character} #{translation}" }
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -251,7 +297,6 @@ end
 def get_translation_mnemonic(html)
   mnemonic_at_heading(html, 'Mnemonic')
     .or_else { mnemonic_at_heading(html, 'Onyomi') }
-    .or_else { text_at(html, '.description') }
     .get_or_else_value('')
 end
 
@@ -260,8 +305,13 @@ end
 def get_onyomi_mnemonic(html)
   mnemonic_at_heading(html, 'Onyomi')
     .or_else { mnemonic_at_heading(html, 'Mnemonic') }
-    .or_else { text_at(html, '.description') }
     .get_or_else_value('')
+end
+
+# @param html [Nokogiri::HTML::Document]
+# @return [May::Be<String>]
+def get_description(html)
+  text_at(html, '.description').get_or_else_value('')
 end
 
 # @param str [String]
@@ -326,6 +376,7 @@ def kunyomi_from_tr(table_row, character)
     .assign(:word) { kunyomi_word(character, table_row) }
     .assign(:pronunciation) { kunyomi_pronunciation(table_row) }
     .assign(:definition) { text_at(table_row, 'td + td') }
+    .assign(:stars) { stars_at(table_row, '.usefulness-stars') }
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -352,12 +403,19 @@ def jukugo_pronunciation_in(spans)
   kanji_in(spans).gsub(/.+\(/, '').gsub(')', '')
 end
 
-# @param kanji [String]
 # @param table_row [Nokogiri::XML::Element]
 # @return [May::Be<String>]
 def jukugo_word(table_row)
   head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
     jparens(prefix_in(spans)) + jukugo_kanji_in(spans) + jparens(suffix_in(spans))
+  end
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return [May::Be<String>]
+def jukugo_kanjis(table_row)
+  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
+    jukugo_kanji_in(spans).split('') - NON_KANJI
   end
 end
 
@@ -374,8 +432,10 @@ end
 def jukugo_from_tr(table_row)
   May.some({})
     .assign(:word) { jukugo_word(table_row) }
+    .assign(:kanjis) { jukugo_kanjis(table_row) }
     .assign(:pronunciation) { jukugo_pronunciation(table_row) }
     .assign(:definition) { text_at(table_row, 'td + td') }
+    .assign(:stars) { stars_at(table_row, '.usefulness-stars') }
 end
 
 # @param html [Nokogiri::HTML::Document]
@@ -394,8 +454,9 @@ end
 def has_more_than_only_essentials?(data)
   data.fetch(:components).length.positive? ||
     data.fetch(:onyomi).map { true }.get_or_else_value(false) ||
-    data.fetch(:onyomi_mnemonic).length.positive? ||
     data.fetch(:translation_mnemonic).length.positive? ||
+    data.fetch(:onyomi_mnemonic).length.positive? ||
+    data.fetch(:description).length.positive? ||
     data.fetch(:kunyomi).count.positive? ||
     data.fetch(:jukugo).count.positive?
 end
@@ -406,7 +467,7 @@ def ensure_more_than_only_essentials(data)
   return May.some(data) if has_more_than_only_essentials?(data)
 
   i, c, t = data.fetch_values(:index, :character, :translation)
-  puts "Only has essentials: [#{i}] #{c}: #{t}. Ignoring."
+  hlog "Only has essentials: [#{i}] #{c}: #{t}. Ignoring."
   May.none
 end
 
@@ -416,7 +477,7 @@ def ensure_character_is_exactly_one_character(data)
   return May.some(data) if data.fetch(:character).length == 1
 
   i, c, t = data.fetch_values(:index, :character, :translation)
-  puts "Character length is not 1: [#{i}] #{c}: #{t}. Ignoring."
+  hlog "Character length is not 1: [#{i}] #{c}: #{t}. Ignoring."
   May.none
 end
 
@@ -439,7 +500,7 @@ def ensure_has_onyomic_or_vocab(data)
   return May.some(data) if has_onyomi_or_vocab?(data)
 
   i, c, t = data.fetch_values(:index, :character, :translation)
-  puts "Does not have onyomi or vocab: [#{i}] #{c}: #{t}. Ignoring."
+  hlog "Does not have onyomi or vocab: [#{i}] #{c}: #{t}. Ignoring."
   May.none
 end
 
@@ -467,10 +528,12 @@ def get_page_data(html)
     .assign(:index) { get_page_index(html) }
     .assign(:translation) { |d| get_kanji_translation(html, d.fetch(:index)) }
     .assign(:character) { |d| get_kanji_character(html, d.fetch(:translation)) }
+    .assign(:stars) { |d| get_kanji_stars(html, *d.fetch_values(:character, :translation)) }
     .map { |d| d.merge(components: get_kanji_components(html)) }
     .map { |d| d.merge(onyomi: get_onyomi(html)) }
-    .map { |d| d.merge(onyomi_mnemonic: get_onyomi_mnemonic(html)) }
     .map { |d| d.merge(translation_mnemonic: get_translation_mnemonic(html)) }
+    .map { |d| d.merge(onyomi_mnemonic: get_onyomi_mnemonic(html)) }
+    .map { |d| d.merge(description: get_description(html)) }
     .map { |d| d.merge(kunyomi: get_kunyomi(html, d[:character])) }
     .map { |d| d.merge(jukugo: get_jukugo(html)) }
     .and_then { |d| apply_heuristics(d) }
