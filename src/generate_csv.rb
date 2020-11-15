@@ -52,6 +52,8 @@ require 'csv'
 #
 # interface VocabularyNote {
 #   word: String;
+#   prefix: String;
+#   suffix: String;
 #   index: Integer;
 #   pronunciation: String;
 #   definition: String;
@@ -121,6 +123,8 @@ end
 def vocab_from_kunyomi(kunyomi, data, kanjis)
   {
     word: kunyomi.fetch(:word),
+    prefix: kunyomi.fetch(:prefix),
+    suffix: kunyomi.fetch(:suffix),
     index: kanjis.index(data.fetch(:character)) + SEPARATION,
     pronunciation: kunyomi.fetch(:pronunciation),
     definition: kunyomi.fetch(:definition),
@@ -148,6 +152,8 @@ def vocab_from_jukugo(jukugo, kanjis)
 
   {
     word: jukugo.fetch(:word),
+    prefix: jukugo.fetch(:prefix),
+    suffix: jukugo.fetch(:suffix),
     index: index,
     pronunciation: jukugo.fetch(:pronunciation),
     definition: jukugo.fetch(:definition),

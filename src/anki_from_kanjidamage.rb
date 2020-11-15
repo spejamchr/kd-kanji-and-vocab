@@ -30,6 +30,8 @@ require_relative 'maybe.rb'
 #
 # interface Kunyomi {
 #   word: String;
+#   prefix: String;
+#   suffix: String;
 #   pronunciation: String;
 #   definition: String;
 #   stars: Integer;
@@ -37,6 +39,8 @@ require_relative 'maybe.rb'
 #
 # interface Jukugo {
 #   word: String;
+#   prefix: String;
+#   suffix: String;
 #   kanjis: Array<String>;
 #   pronunciation: String;
 #   definition: String;
@@ -112,6 +116,8 @@ end
 def jukugo_errors(jukugo)
   obj_is(jukugo, 'a jukugo to be a Hash', Hash) do
     attr_is(jukugo, :word, String) +
+      attr_is(jukugo, :prefix, String) +
+      attr_is(jukugo, :suffix, String) +
       check_array_with(jukugo, :kanjis) { |k| obj_is(k, 'a kanji to be a String', String) } +
       attr_is(jukugo, :pronunciation, String) +
       attr_is(jukugo, :definition, String) +
@@ -124,6 +130,8 @@ end
 def kunyomi_errors(kunyomi)
   obj_is(kunyomi, 'a kunyomi to be a Hash', Hash) do
     attr_is(kunyomi, :word, String) +
+      attr_is(kunyomi, :prefix, String) +
+      attr_is(kunyomi, :suffix, String) +
       attr_is(kunyomi, :pronunciation, String) +
       attr_is(kunyomi, :definition, String) +
       attr_is(kunyomi, :stars, Integer)
@@ -351,21 +359,39 @@ def tail_in(spans)
   parts.count == 2 ? parts.last : ''
 end
 
+# @param table_row [Nokogiri::XML::Element]
+# @return [May::Be<Nokogiri::XML::NodeSet>]
+def spans_in_first_td(table_row)
+  head(table_row.search('td')).map { |td| td.search('span') }
+end
+
 # @param kanji [String]
 # @param table_row [Nokogiri::XML::Element]
 # @return May::Be<String>
 def kunyomi_word(kanji, table_row)
-  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jparens(prefix_in(spans)) + kanji + tail_in(spans) + jparens(suffix_in(spans))
-  end
+  spans_in_first_td(table_row)
+    .map { |spans| kanji + tail_in(spans) }
+    .map { |word| word.gsub(/[[:space:]]+/, '') }
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return May::Be<String>
+def kunyomi_prefix(table_row)
+  spans_in_first_td(table_row).map { |spans| jparens(prefix_in(spans)) }
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return May::Be<String>
+def kunyomi_suffix(table_row)
+  spans_in_first_td(table_row).map { |spans| jparens(suffix_in(spans)) }
 end
 
 # @param table_row [Nokogiri::XML::Element]
 # @return May::Be<String>
 def kunyomi_pronunciation(table_row)
-  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jparens(prefix_in(spans)) + kanji_in(spans) + jparens(suffix_in(spans))
-  end
+  spans_in_first_td(table_row)
+    .map { |spans| kanji_in(spans) }
+    .map { |word| word.gsub(/[*＊]/, '') }
 end
 
 # @param table_row [Nokogiri::XML::Element]
@@ -374,6 +400,8 @@ end
 def kunyomi_from_tr(table_row, character)
   May.some({})
     .assign(:word) { kunyomi_word(character, table_row) }
+    .assign(:prefix) { kunyomi_prefix(table_row) }
+    .assign(:suffix) { kunyomi_suffix(table_row) }
     .assign(:pronunciation) { kunyomi_pronunciation(table_row) }
     .assign(:definition) { text_at(table_row, 'td + td') }
     .assign(:stars) { stars_at(table_row, '.usefulness-stars') }
@@ -406,25 +434,33 @@ end
 # @param table_row [Nokogiri::XML::Element]
 # @return [May::Be<String>]
 def jukugo_word(table_row)
-  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jparens(prefix_in(spans)) + jukugo_kanji_in(spans) + jparens(suffix_in(spans))
-  end
+  spans_in_first_td(table_row)
+    .map { |spans| jukugo_kanji_in(spans) }
+    .map { |word| word.gsub(/[[:space:]]+/, '') }
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return [May::Be<String>]
+def jukugo_prefix(table_row)
+  spans_in_first_td(table_row).map { |spans| jparens(prefix_in(spans))  }
+end
+
+# @param table_row [Nokogiri::XML::Element]
+# @return [May::Be<String>]
+def jukugo_suffix(table_row)
+  spans_in_first_td(table_row).map { |spans| jparens(suffix_in(spans))  }
 end
 
 # @param table_row [Nokogiri::XML::Element]
 # @return [May::Be<String>]
 def jukugo_kanjis(table_row)
-  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jukugo_kanji_in(spans).split('') - NON_KANJI
-  end
+  spans_in_first_td(table_row).map { |spans| jukugo_kanji_in(spans).split('') - NON_KANJI }
 end
 
 # @param table_row [Nokogiri::XML::Element]
 # @return [May::Be<String>]
 def jukugo_pronunciation(table_row)
-  head(table_row.search('td')).map { |td| td.search('span') }.map do |spans|
-    jparens(prefix_in(spans)) + jukugo_pronunciation_in(spans) + jparens(suffix_in(spans))
-  end
+  spans_in_first_td(table_row).map { |spans| jukugo_pronunciation_in(spans) }
 end
 
 # @param table_row [Nokogiri::XML::Element]
@@ -432,6 +468,8 @@ end
 def jukugo_from_tr(table_row)
   May.some({})
     .assign(:word) { jukugo_word(table_row) }
+    .assign(:prefix) { jukugo_prefix(table_row) }
+    .assign(:suffix) { jukugo_suffix(table_row) }
     .assign(:kanjis) { jukugo_kanjis(table_row) }
     .assign(:pronunciation) { jukugo_pronunciation(table_row) }
     .assign(:definition) { text_at(table_row, 'td + td') }
