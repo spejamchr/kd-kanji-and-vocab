@@ -47,16 +47,6 @@ require_relative 'maybe.rb'
 #   stars: Integer;
 # }
 
-HIRAGANA = ("\u3041".."\u3093").map(&:freeze).freeze
-KATAKANA = ("\u30A1".."\u30F6").map(&:freeze).freeze
-ASCII = ("\u0000".."\u007F").map(&:freeze).freeze
-PUNCTUATION = (
-  ("\uff01".."\uff19").to_a +
-  ("\uff1a".."\uff3a").to_a +
-  ["　", "ー"]
-).map(&:freeze).freeze
-NON_KANJI = (HIRAGANA + KATAKANA + ASCII + PUNCTUATION).freeze
-
 # @param val [any] - The thing to test
 # @param msg [String] - message when the thing is not what you expect
 # @param expected [any] - what you expect, either a Class, or a specific thing
@@ -454,7 +444,8 @@ end
 # @param table_row [Nokogiri::XML::Element]
 # @return [May::Be<String>]
 def jukugo_kanjis(table_row)
-  spans_in_first_td(table_row).map { |spans| jukugo_kanji_in(spans).split('') - NON_KANJI }
+  spans_in_first_td(table_row)
+    .map { |spans| jukugo_kanji_in(spans).split('') - KDAnki::NON_KANJI }
 end
 
 # @param table_row [Nokogiri::XML::Element]

@@ -15,6 +15,7 @@
 require_relative 'kd_anki.rb'
 require 'json'
 require 'csv'
+require 'set'
 
 # There are several types of flashcards to consider:
 #
@@ -72,6 +73,29 @@ KD_SEARCH = 'http://www.kanjidamage.com/kanji/search?q={kanji}'
 
 # The Jisho Search path
 JISHO_SEARCH = 'https://jisho.org/search/{kanji}%23kanji'
+
+# Add the 6k stuff
+HEADERS_6K = %i[
+  vocab_kanji
+  vocab_furigana
+  vocab_kana
+  vocab_english
+  vocab_audio
+  vocab_pos
+  caution
+  sentence
+  sentence_furigana
+  sentence_kana
+  sentence_english
+  sentence_clozed
+  sentence_audio
+  notes
+  core_index
+  sent_index
+  voc_index
+  index
+  stars
+].freeze
 
 # @param kanji [String] a single kanji to search for on KanjiDamage
 # @return [String] the html anchor element linking to that kanji's page
@@ -146,9 +170,8 @@ end
 # @param kanjis [Array<String>]
 def vocab_from_jukugo(jukugo, kanjis)
   j_kanjis = jukugo.fetch(:kanjis)
-  j_kd_kanjis = j_kanjis.select { |j| kanjis.include?(j) }
-  non_kd_kanjis = j_kanjis - j_kd_kanjis
-  index = j_kd_kanjis.map { |k| kanjis.index(k) }.max + SEPARATION + 50 * non_kd_kanjis.count
+  j_kd_kanjis, non_kd_kanjis = j_kanjis.partition { |j| kanjis.include?(j) }
+  index = j_kd_kanjis.map { |k| kanjis.index(k) }.max + SEPARATION
 
   {
     word: jukugo.fetch(:word),
@@ -182,7 +205,32 @@ def hashes_to_csv(filepath, hashes)
   end
 end
 
+# @param core_word [Hash] core 6k word data
+# @param kd [VocabularyNote]
+# @param kanjis [Array<String>]
+def core_index_and_stars(core_word, kd, kanjis)
+  return kd.slice(:index, :stars) if kd
+
+  reg_index = core_word.fetch(:vocab_kanji).split('').map { |k| kanjis.index(k) }.compact.max
+
+  {
+    index: reg_index ? reg_index + SEPARATION : core_word.fetch(:voc_index).to_i,
+    stars: reg_index ? 'unknown' : 'no-kd-kanji',
+  }
+end
+
+# @param core_word [Hash] core 6k word data
+# @param kd_in_core [Array<VocabularyNote>]
+# @param kanjis [Array<String>]
+def merge_kd_data(core_word, kd_in_core, kanjis)
+  kd = kd_in_core.find { |k| k.fetch(:word) == core_word.fetch(:vocab_kanji) }
+
+  core_word.merge(core_index_and_stars(core_word, kd, kanjis))
+end
+
 data = JSON.parse(File.read(KDAnki::DATA_CACHE_PATH), symbolize_names: true)
+core = CSV.read(KDAnki::CORE6K_PATH, col_sep: "\t", headers: HEADERS_6K)
+core_words = core.map { |r| r[:vocab_kanji] }.to_set
 
 kanjis = data.map { |e| e.fetch(:character) }.uniq
 
@@ -193,11 +241,19 @@ onyomis = data
   .map { |e| kanji_onyomi_from_page_data(e, kanjis) }
   .uniq { |o| o[:kanji] }
 
-vocabs = data.flat_map { |e| vocabs_from_page_data(e, kanjis) }.uniq { |v| v[:word] }
+in_core, vocabs = data
+  .flat_map { |e| vocabs_from_page_data(e, kanjis) }
+  .uniq { |v| v[:word] }
+  .partition { |v| core_words.include?(v[:word]) }
+
+core = core
+  .map { |v| merge_kd_data(v.to_h, in_core, kanjis) }
 
 # Ruby's sort methods are unstable. Use #with_index to make this a stable sort.
 # @see https://stackoverflow.com/a/15442966
-ordered = (meanings + onyomis + vocabs).sort_by.with_index { |v, i| [v.fetch(:index), i] }
+ordered = (meanings + onyomis + core + vocabs)
+  .sort_by
+  .with_index { |v, i| [v.fetch(:index), i] }
 
 # Straighten out the indices
 ordered.each_with_index { |entry, index| entry[:index] = index }
@@ -206,7 +262,9 @@ ordered.each_with_index { |entry, index| entry[:index] = index }
 meanings.sort_by! { |m| m.fetch(:index) }
 onyomis.sort_by! { |o| o.fetch(:index) }
 vocabs.sort_by! { |v| v.fetch(:index) }
+core.sort_by! { |c| c.fetch(:index) }
 
-hashes_to_csv(KDAnki::MEANINGS_CSV_PATH, meanings)
-hashes_to_csv(KDAnki::ONYOMIS_CSV_PATH, onyomis)
-hashes_to_csv(KDAnki::VOCABS_CSV_PATH, vocabs)
+hashes_to_csv(KDAnki::MEANINGS_CSV_PATH, meanings.map { |d| d.slice(:kanji, :index) })
+hashes_to_csv(KDAnki::ONYOMIS_CSV_PATH, onyomis.map { |d| d.slice(:kanji, :index) })
+hashes_to_csv(KDAnki::VOCABS_CSV_PATH, vocabs.map { |d| d.slice(:word, :index) })
+hashes_to_csv(KDAnki::CORE_CSV_PATH, core.map { |d| d.slice(:core_index, :index, :stars) })
