@@ -263,8 +263,10 @@ meanings.sort_by! { |m| m.fetch(:index) }
 onyomis.sort_by! { |o| o.fetch(:index) }
 vocabs.sort_by! { |v| v.fetch(:index) }
 core.sort_by! { |c| c.fetch(:index) }
+in_core.sort_by! { |c| c.fetch(:index) }
 
 hashes_to_csv(KDAnki::MEANINGS_CSV_PATH, meanings.map { |d| d.slice(:kanji, :index) })
 hashes_to_csv(KDAnki::ONYOMIS_CSV_PATH, onyomis.map { |d| d.slice(:kanji, :index) })
 hashes_to_csv(KDAnki::VOCABS_CSV_PATH, vocabs.map { |d| d.slice(:word, :index) })
 hashes_to_csv(KDAnki::CORE_CSV_PATH, core.map { |d| d.slice(:core_index, :index, :stars) })
+hashes_to_csv(KDAnki::VOCABS_CSV_PATH + '.dup', in_core.map { |d| d.slice(:word).merge(tags: :dup_of_core) })
